@@ -14,8 +14,9 @@
 ## ✅ 주요 기능
 
 - MCP 서버 구현
-- 웹 검색 기능을 위한 Tavily API 통합
-- 표준 입출력(standard input/output)을 통한 통신 지원
+- Express.js를 활용한 RESTful API 서버 구현
+- 클라이언트로부터의 POST 요청을 처리하고, 요청 본문(message)을 기반으로 제미나이로 응답 반환(gemini-1.5-flash)
+- TypeScript를 사용하여 정적 타입 검사 및 코드 품질 향상
 
 ## ⚙️ 설치 및 실행
 
