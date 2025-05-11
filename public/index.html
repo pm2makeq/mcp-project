@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>학생 관리 RAG 기반 챗봇</title>
+  <style>
+  body {
+    font-family: sans-serif;
+    max-width: 600px;
+    margin: 2rem auto;
+  }
+  #chat {
+    border: 1px solid #ccc;
+    padding: 1rem;
+    height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+
+  #chat .message {
+    display: flex;
+    align-items: flex-start;
+    margin: .5rem 0;
+    width: 100%;
+  }
+
+  #chat .message .avatar {
+    font-size: 1.5rem;
+    margin: 0 .5rem;
+  }
+
+  #chat .message .text {
+    padding: .5rem 1rem;
+    border-radius: .5rem;
+    line-height: 1.4;
+    max-width: 80%;
+    word-break: break-word;
+  }
+
+  #chat .message.bot {
+    justify-content: flex-start;
+  }
+  #chat .message.bot .text {
+    background: #f0f0f0;
+    color: #333;
+  }
+
+  #chat .message.user {
+    justify-content: flex-end;
+  }
+  #chat .message.user .text {
+    background: #d0eaff;
+    color: #000;
+  }
+  
+  /* ── 입력 폼 스타일 조정 ───────────────────── */
+  form {
+    display: flex;
+    width: 100%;        /* 컨테이너 폭에 맞춤 */
+    margin-top: 1rem;
+  }
+  input {
+    flex: 1;
+    padding: .75rem;    /* 높이 증가 */
+    font-size: 1.25rem; /* 약 +5px (기존 1rem ≈16px → 1.25rem ≈20px) */
+    border: 1px solid #ccc;
+    border-radius: .25rem 0 0 .25rem;
+    outline: none;
+  }
+  button {
+    padding: .75rem 1.25rem;
+    font-size: 1.25rem;
+    border: 1px solid #ccc;
+    border-left: none;
+    border-radius: 0 .25rem .25rem 0;
+    background: #007bff;
+    color: #fff;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #0056b3;
+  }
+</style>
+
+</head>
+<body>
+  <h2>학생 관리 RAG 기반 챗봇</h2>
+  <div id="chat"></div>
+
+  <form id="inputForm">
+    <input id="messageInput" type="text" placeholder="질문을 입력하세요…" required />
+    <button type="submit">전송</button>
+  </form>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const chat = document.getElementById('chat');
+      const form = document.getElementById('inputForm');
+      const input = document.getElementById('messageInput');
+
+      function appendMessage(who, text) {
+        const wrapper = document.createElement('div');
+        wrapper.classList.add('message', who);
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = who === 'bot' ? '🤖' : '👤';
+
+        const content = document.createElement('div');
+        content.className = 'text';
+        content.textContent = text;
+
+        if (who === 'bot') {
+          wrapper.append(avatar, content);
+        } else {
+          wrapper.append(content, avatar);
+        }
+        chat.appendChild(wrapper);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      function updateLastBot(text) {
+        const bots = chat.querySelectorAll('.bot .text');
+        const last = bots[bots.length - 1];
+        if (last) last.textContent = text;
+        chat.scrollTop = chat.scrollHeight;
+          }
+
+          // 초기 인사 메시지
+          appendMessage('bot', '안녕하세요 저는 학생관리하는 챗봇입니다.\n무슨 정보가 필요하신가요?');
+          
+          async function callAsk(question, tables = []) {
+            tables.push("students");
+            const resp = await fetch('/proxy/8080/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, tables }),
+      });
+
+      let data;
+      try {
+        data = await resp.json();
+      } catch (e) {
+        return {
+          sql: '응답할 수 없는 요청입니다.',
+          rows: '응답할 수 없는 요청입니다.',
+          summary: '서버 응답을 해석할 수 없습니다.',
+        };
+      }
+
+      // 에러 응답
+      if (typeof data !== 'object' || data === null || 'error' in data || 'note' in data) {
+        return {
+          sql: '응답할 수 없는 요청입니다.',
+          rows: '응답할 수 없는 요청입니다.',
+          summary: data?.note || data?.error || '응답할 수 없는 요청입니다.',
+        };
+      }
+
+      // 정상 응답
+      return {
+        sql: typeof data.sql === 'string' ? data.sql : '응답할 수 없는 요청입니다.',
+        rows: Array.isArray(data.rows) && data.rows.length > 0 ? data.rows : '응답할 수 없는 요청입니다.',
+        summary: typeof data.summary === 'string' && data.summary.trim()
+          ? data.summary
+          : '응답할 수 없는 요청입니다.',
+      };
+      }
+
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        const question = input.value.trim();
+        if (!question) return;
+
+        appendMessage('user', question);
+		
+        appendMessage('bot', '🕑 처리 중…');
+        input.value = '';
+        // 1) 인사말 감지
+        if (/^(안녕|안녕하세요|반갑습니다|반가)/.test(question)) {
+          appendMessage('bot', "안녕하세요! 학생 성적 관리 챗봇입니다.");
+          return;
+        }
+		
+        try {
+          const { sql, rows, summary } = await callAsk(question, ['']);
+
+          // ❗ 에러 응답이면 throw
+          if (typeof summary !== 'string' || !summary.trim()) {
+            throw new Error('요약 결과가 비어 있거나 올바르지 않습니다.');
+          }
+
+          updateLastBot(
+            '✅ 생성된 SQL:\n' + sql +
+            '\n\n✅ 데이터:\n' + JSON.stringify(rows, null, 2) +
+            '\n\n✅ 요약:\n' + summary
+          );
+        } catch (err) {
+          updateLastBot('❌ 오류가 발생했습니다:\n' + err);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
